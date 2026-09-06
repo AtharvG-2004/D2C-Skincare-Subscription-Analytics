@@ -269,3 +269,167 @@ def generate_users(n_users=60000, start_date="2025-01-01", end_date="2027-12-31"
         )
 
     return pd.DataFrame(rows)
+
+def generate_sessions(users_df, n_sessions=450000, seed=42):
+    """Generate synthetic website sessions and funnel events."""
+
+    random.seed(seed)
+
+    traffic_sources = [
+        "Paid Social",
+        "Paid Search",
+        "Influencer",
+        "Email",
+        "Organic Search",
+        "Direct",
+        "Referral",
+    ]
+
+    source_weights = {
+        "Paid Social": 0.27,
+        "Paid Search": 0.16,
+        "Influencer": 0.12,
+        "Email": 0.08,
+        "Organic Search": 0.15,
+        "Direct": 0.13,
+        "Referral": 0.09,
+    }
+
+    landing_pages = [
+        "Homepage",
+        "Product Page",
+        "Collection Page",
+        "Skincare Quiz",
+        "Subscription Landing",
+        "Sale Landing",
+    ]
+
+    sessions = []
+
+    for i in range(1, n_sessions + 1):
+        user = users_df.iloc[random.randrange(len(users_df))]
+
+        signup_date = pd.Timestamp(user["signup_date"])
+        max_date = pd.Timestamp("2027-12-31")
+
+        available_days = max(0, (max_date - signup_date).days)
+
+        session_date = signup_date + pd.Timedelta(
+            days=random.randint(0, available_days)
+        )
+
+        traffic_source = random.choices(
+            traffic_sources,
+            weights=[source_weights[x] for x in traffic_sources],
+            k=1,
+        )[0]
+
+        device_type = user["device_type"]
+
+        # Funnel probabilities by traffic source.
+        product_view_prob = {
+            "Paid Social": 0.62,
+            "Paid Search": 0.72,
+            "Influencer": 0.68,
+            "Email": 0.78,
+            "Organic Search": 0.70,
+            "Direct": 0.75,
+            "Referral": 0.76,
+        }[traffic_source]
+
+        add_cart_prob = {
+            "Paid Social": 0.18,
+            "Paid Search": 0.28,
+            "Influencer": 0.22,
+            "Email": 0.32,
+            "Organic Search": 0.27,
+            "Direct": 0.30,
+            "Referral": 0.31,
+        }[traffic_source]
+
+        checkout_prob = {
+            "Paid Social": 0.42,
+            "Paid Search": 0.58,
+            "Influencer": 0.48,
+            "Email": 0.62,
+            "Organic Search": 0.56,
+            "Direct": 0.60,
+            "Referral": 0.61,
+        }[traffic_source]
+
+        purchase_prob = {
+            "Paid Social": 0.48,
+            "Paid Search": 0.68,
+            "Influencer": 0.55,
+            "Email": 0.72,
+            "Organic Search": 0.66,
+            "Direct": 0.70,
+            "Referral": 0.71,
+        }[traffic_source]
+
+        # Mobile users have slightly weaker checkout completion.
+        if device_type == "Mobile":
+            checkout_prob *= 0.95
+
+        product_view = random.random() < product_view_prob
+
+        add_to_cart = (
+            product_view and random.random() < add_cart_prob
+        )
+
+        checkout_started = (
+            add_to_cart and random.random() < checkout_prob
+        )
+
+        purchase_completed = (
+            checkout_started and random.random() < purchase_prob
+        )
+
+        # Engagement metrics increase with funnel progression.
+        base_duration = random.randint(15, 180)
+
+        if product_view:
+            base_duration += random.randint(20, 120)
+
+        if add_to_cart:
+            base_duration += random.randint(30, 120)
+
+        if checkout_started:
+            base_duration += random.randint(30, 150)
+
+        if purchase_completed:
+            base_duration += random.randint(20, 90)
+
+        session_duration = base_duration
+
+        pages_viewed = random.randint(1, 3)
+
+        if product_view:
+            pages_viewed += random.randint(1, 3)
+
+        if add_to_cart:
+            pages_viewed += random.randint(1, 2)
+
+        if checkout_started:
+            pages_viewed += 1
+
+        landing_page = random.choice(landing_pages)
+
+        sessions.append(
+            {
+                "session_id": f"S{i:06d}",
+                "user_id": user["user_id"],
+                "session_date": session_date.date(),
+                "traffic_source": traffic_source,
+                "landing_page": landing_page,
+                "device_type": device_type,
+                "session_duration_seconds": session_duration,
+                "pages_viewed": pages_viewed,
+                "product_view": product_view,
+                "add_to_cart": add_to_cart,
+                "checkout_started": checkout_started,
+                "purchase_completed": purchase_completed,
+            }
+        )
+
+    return pd.DataFrame(sessions)
