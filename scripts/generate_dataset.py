@@ -433,3 +433,163 @@ def generate_sessions(users_df, n_sessions=450000, seed=42):
         )
 
     return pd.DataFrame(sessions)
+
+def generate_subscriptions(users_df, n_subscriptions=18000, seed=42):
+    """Generate synthetic skincare subscription records."""
+
+    random.seed(seed)
+
+    eligible_users = users_df.sample(
+        n=min(n_subscriptions, len(users_df)),
+        random_state=seed
+    ).copy()
+
+    plans = ["Basic", "Glow", "Premium"]
+    plan_weights = [0.35, 0.45, 0.20]
+
+    plan_prices = {
+        "Basic": 699,
+        "Glow": 999,
+        "Premium": 1499,
+    }
+
+    frequencies = ["Monthly", "Quarterly"]
+    frequency_weights = [0.80, 0.20]
+
+    channels = {
+        "Paid Social": 0.20,
+        "Paid Search": 0.30,
+        "Influencer": 0.22,
+        "Email": 0.35,
+        "Organic Search": 0.34,
+        "Direct": 0.34,
+        "Referral": 0.36,
+    }
+
+    cancel_reasons = [
+        "Too expensive",
+        "Product not needed",
+        "Product dissatisfaction",
+        "Payment failure",
+        "Found alternative",
+        "Too much product",
+    ]
+
+    rows = []
+
+    for i, (_, user) in enumerate(eligible_users.iterrows(), start=1):
+
+        signup_date = pd.Timestamp(user["signup_date"])
+        end_date = pd.Timestamp("2027-12-31")
+
+        available_days = max(0, (end_date - signup_date).days)
+
+        # Subscription starts after signup.
+        start_offset = random.randint(
+            min(45, available_days),
+            max(45, available_days)
+        ) if available_days > 45 else available_days
+
+        subscription_start = signup_date + pd.Timedelta(days=start_offset)
+
+        if subscription_start > end_date:
+            subscription_start = end_date
+
+        plan = random.choices(
+            plans,
+            weights=plan_weights,
+            k=1
+        )[0]
+
+        frequency = random.choices(
+            frequencies,
+            weights=frequency_weights,
+            k=1
+        )[0]
+
+        monthly_price = plan_prices[plan]
+
+        # Estimate lifecycle length.
+        channel = user["acquisition_channel"]
+        base_life = random.randint(4, 18)
+
+        # Higher-quality channels retain customers longer.
+        if channels.get(channel, 0.25) >= 0.30:
+            base_life += random.randint(1, 5)
+
+        if channel == "Paid Social":
+            base_life -= random.randint(0, 3)
+
+        if channel == "Influencer" and subscription_start.year >= 2027:
+            base_life -= random.randint(1, 4)
+
+        base_life = max(1, base_life)
+
+        months_available = max(
+            1,
+            (end_date.year - subscription_start.year) * 12
+            + end_date.month - subscription_start.month
+            + 1
+        )
+
+        lifecycle_months = min(base_life, months_available)
+
+        # Most subscriptions are active.
+        status_roll = random.random()
+
+        if lifecycle_months <= 2:
+            status = random.choices(
+                ["Active", "Cancelled"],
+                weights=[0.75, 0.25],
+                k=1
+            )[0]
+        else:
+            status = random.choices(
+                ["Active", "Cancelled", "Paused"],
+                weights=[0.68, 0.24, 0.08],
+                k=1
+            )[0]
+
+        cancel_date = None
+        cancel_reason = None
+
+        if status == "Cancelled":
+            cancel_month = random.randint(1, lifecycle_months)
+
+            cancel_date = subscription_start + pd.DateOffset(
+                months=cancel_month
+            )
+
+            if cancel_date > end_date:
+                cancel_date = end_date
+
+            # About 8–12% of cancellations have no reason.
+            if random.random() >= 0.10:
+                cancel_reason = random.choice(cancel_reasons)
+
+        # Initial estimate; later orders will provide the authoritative count.
+        if frequency == "Monthly":
+            total_cycles = lifecycle_months
+        else:
+            total_cycles = max(1, (lifecycle_months + 2) // 3)
+
+        rows.append(
+            {
+                "subscription_id": f"SUB{i:05d}",
+                "user_id": user["user_id"],
+                "subscription_start_date": subscription_start.date(),
+                "plan_type": plan,
+                "billing_frequency": frequency,
+                "monthly_price": monthly_price,
+                "status": status,
+                "cancel_date": (
+                    cancel_date.date()
+                    if cancel_date is not None
+                    else None
+                ),
+                "cancel_reason": cancel_reason,
+                "total_cycles": total_cycles,
+            }
+        )
+
+    return pd.DataFrame(rows)
